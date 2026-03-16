@@ -185,7 +185,6 @@ export function issueRoutes(db: Db, storage: StorageService) {
       identifier: string | null;
     },
     options: {
-      nextStatus: string;
       requestedStatus?: string;
       nextAssigneeAgentId: string | null;
       nextAssigneeUserId: string | null;
@@ -198,9 +197,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const currentAssigneeAgentId = issue.assigneeAgentId;
     const nextAssigneeAgentId = options.nextAssigneeAgentId;
     const nextAssigneeUserId = options.nextAssigneeUserId;
-    const nextStatus = options.nextStatus;
-    const assigneeChanges =
-      currentAssigneeAgentId !== nextAssigneeAgentId || issue.assigneeUserId !== nextAssigneeUserId;
+    const assigneeChanges = currentAssigneeAgentId !== nextAssigneeAgentId;
     const cancelsTask = options.requestedStatus === "cancelled" && issue.status !== "cancelled";
 
     const managedAgentId =
@@ -936,6 +933,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const assigneeWillChange =
       (req.body.assigneeAgentId !== undefined && req.body.assigneeAgentId !== existing.assigneeAgentId) ||
       (req.body.assigneeUserId !== undefined && req.body.assigneeUserId !== existing.assigneeUserId);
+    const assigneeAgentWillChange =
+      req.body.assigneeAgentId !== undefined && req.body.assigneeAgentId !== existing.assigneeAgentId;
 
     const isAgentReturningIssueToCreator =
       req.actor.type === "agent" &&
@@ -950,9 +949,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       req.body.assigneeAgentId !== undefined ? req.body.assigneeAgentId : existing.assigneeAgentId;
     const nextAssigneeUserId =
       req.body.assigneeUserId !== undefined ? req.body.assigneeUserId : existing.assigneeUserId;
-    const nextStatus = req.body.status ?? existing.status;
     await assertAgentCanManageTaskControl(req, existing, {
-      nextStatus,
       requestedStatus: req.body.status,
       nextAssigneeAgentId,
       nextAssigneeUserId,
@@ -1030,7 +1027,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     const shouldInterruptManagedRun =
       !!existing.assigneeAgentId &&
       existing.assigneeAgentId !== actor.agentId &&
-      (req.body.status === "cancelled" || assigneeWillChange);
+      (req.body.status === "cancelled" || assigneeAgentWillChange);
     let interruptedRunId: string | null = null;
     if (shouldInterruptManagedRun) {
       try {
