@@ -70,6 +70,17 @@ export function issueRoutes(db: Db, storage: StorageService) {
     return actorAgent;
   }
 
+  async function getAgentTaskAssignGrant(req: Request, companyId: string) {
+    if (req.actor.type !== "agent" || !req.actor.agentId) return false;
+    const cache = (req as Request & { _agentTaskAssignGrantByCompany?: Map<string, boolean> })._agentTaskAssignGrantByCompany;
+    if (cache?.has(companyId)) return cache.get(companyId) ?? false;
+    const allowedByGrant = await access.hasPermission(companyId, "agent", req.actor.agentId, "tasks:assign");
+    const nextCache = cache ?? new Map<string, boolean>();
+    nextCache.set(companyId, allowedByGrant);
+    (req as Request & { _agentTaskAssignGrantByCompany?: Map<string, boolean> })._agentTaskAssignGrantByCompany = nextCache;
+    return allowedByGrant;
+  }
+
   async function runSingleFileUpload(req: Request, res: Response) {
     await new Promise<void>((resolve, reject) => {
       upload.single("file")(req, res, (err: unknown) => {
@@ -113,7 +124,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
     }
     if (req.actor.type === "agent") {
       if (!req.actor.agentId) throw forbidden("Agent authentication required");
-      const allowedByGrant = await access.hasPermission(companyId, "agent", req.actor.agentId, "tasks:assign");
+      const allowedByGrant = await getAgentTaskAssignGrant(req, companyId);
       if (allowedByGrant) return;
       const actorAgent = await getActorAgent(req);
       if (actorAgent && actorAgent.companyId === companyId && canManageTasksLegacy(actorAgent)) return;
@@ -242,7 +253,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
 
     if (!managedAgentId) return;
 
-    const allowedByGrant = await access.hasPermission(issue.companyId, "agent", actorAgentId, "tasks:assign");
+    const allowedByGrant = await getAgentTaskAssignGrant(req, issue.companyId);
     const actorAgent = await getActorAgent(req);
     const hasTaskManagementPermission =
       !!actorAgent &&
@@ -1447,13 +1458,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         currentIssue.assigneeAgentId
       ) {
         const activeRun = await heartbeat.getActiveRunForAgent(currentIssue.assigneeAgentId);
-        const activeIssueId =
-          activeRun &&
-            activeRun.contextSnapshot &&
-            typeof activeRun.contextSnapshot === "object" &&
-            typeof (activeRun.contextSnapshot as Record<string, unknown>).issueId === "string"
-            ? ((activeRun.contextSnapshot as Record<string, unknown>).issueId as string)
-            : null;
+        const activeIssueId = getIssueRunContextIssueId(activeRun?.contextSnapshot ?? null);
         if (
           activeRun &&
           (activeRun.status === "running" || activeRun.status === "queued") &&
